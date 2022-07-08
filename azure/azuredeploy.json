@@ -1,0 +1,119 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "dnsNamePrefix": {
+      "type": "string",
+      "metadata": {
+        "description": "The concatenation of the domain name, component, and the regionalized DNS zone make up the fully qualified domain name associated with the public IP address."
+      }
+    },
+    "agentCount": {
+      "type": "int",
+      "defaultValue": 3,
+      "metadata": {
+        "description": "The number of Mesos agents for the cluster.  This value can be from 1 to 40"
+      },
+      "minValue":1,
+      "maxValue":40
+    },
+    "masterCount": {
+      "type": "int",
+      "defaultValue": 1,
+      "allowedValues": [
+        1,
+        3,
+        5
+      ],
+      "metadata": {
+        "description": "The number of Mesos masters for the cluster."
+      }
+    },
+    "agentVMSize": {
+      "type": "string",
+      "defaultValue": "Standard_A1_v2",
+      "allowedValues": [
+        "Standard_A1_v2",
+        "Standard_A2_v2",
+        "Standard_A3",
+        "Standard_A4_v2"
+      ],
+      "metadata": {
+        "description": "The size of the Virtual Machine."
+      }
+    },
+    "sshRSAPublicKey": {
+      "type": "string",
+      "metadata": {
+        "description": "Configure all linux machines with the SSH RSA public key string.  Your key should include three parts, for example 'ssh-rsa AAAAB...snip...UcyupgH azureuser@linuxvm'"
+      }
+    }
+  },
+  "variables": {
+    "mastersEndpointDNSNamePrefix":"[concat(parameters('dnsNamePrefix'),'mgmt')]",
+    "agentsEndpointDNSNamePrefix":"[concat(parameters('dnsNamePrefix'),'agents')]",
+    "agentCount":"[parameters('agentCount')]",
+    "masterCount":"[parameters('masterCount')]",
+    "agentVMSize":"[parameters('agentVMSize')]",
+    "sshRSAPublicKey":"[parameters('sshRSAPublicKey')]",
+    "adminUsername":"azureuser"
+  },
+  "resources": [
+    {
+      "apiVersion": "2015-11-01-preview",
+      "type": "Microsoft.ContainerService/containerServices",
+      "location": "[resourceGroup().location]",
+      "name":"[concat('containerservice-',resourceGroup().name)]",
+      "properties": {
+        "orchestratorProfile": {
+          "orchestratorType": "DCOS"
+        },
+        "masterProfile": {
+          "count": "[variables('masterCount')]",
+          "dnsPrefix": "[variables('mastersEndpointDNSNamePrefix')]"
+        },
+        "agentPoolProfiles": [
+          {
+            "name": "agentpools",
+            "count": "[variables('agentCount')]",
+            "vmSize": "[variables('agentVMSize')]",
+            "dnsPrefix": "[variables('agentsEndpointDNSNamePrefix')]"
+          }
+        ],
+        "linuxProfile": {
+          "adminUsername": "[variables('adminUsername')]",
+          "ssh": {
+            "publicKeys": [
+              {
+                "keyData": "[variables('sshRSAPublicKey')]"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "name": "[concat('flakio', uniqueString(resourceGroup().id, deployment().name))]",
+      "apiVersion": "2015-06-15",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "accountType": "Standard_GRS"
+      }
+    }
+  ],
+  "outputs": {
+    "masterFQDN": {
+      "type": "string",
+      "value": "[reference(concat('Microsoft.ContainerService/containerServices/', 'containerservice-', resourceGroup().name)).masterProfile.fqdn]"
+    },
+    "sshMaster0": {
+      "type": "string",
+      "value": "[concat('ssh ', variables('adminUsername'), '@', reference(concat('Microsoft.ContainerService/containerServices/', 'containerservice-', resourceGroup().name)).masterProfile.fqdn, ' -A -p 2200')]"
+    },
+    "agentFQDN": {
+      "type": "string",
+      "value": "[reference(concat('Microsoft.ContainerService/containerServices/', 'containerservice-', resourceGroup().name)).agentPoolProfiles[0].fqdn]"
+    }
+  }
+}
